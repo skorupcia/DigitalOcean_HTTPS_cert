@@ -1,0 +1,53 @@
+---
+- hosts: localhost
+  connection: local
+  vars_files:
+    - vars/keys.yml
+
+  tasks:
+    - name: Create Digitalocean droplet
+      community.digitalocean.digital_ocean_droplet:
+        state: present
+        oauth_token: "{{ u_token }}"
+        name: subdomain.example.com
+        private_networking: false
+        size: s-1vcpu-512mb-10gb
+        image: ubuntu-20-04-x64
+        region: fra1
+        ssh_keys: "{{ u_ssh }}"
+        unique_name: true
+      register: do
+
+    - name: Get DigitalOcean API Token
+      ansible.builtin.set_fact:
+        do_token: "{{ u_token }}"
+
+    - name: Get Droplet Information
+      ansible.builtin.uri:
+        url: "https://api.digitalocean.com/v2/droplets"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ do_token }}"
+        return_content: true
+      register: droplets
+
+    - name: Extract Droplet IP
+      ansible.builtin.set_fact:
+        droplet_ip: "{{ droplets.json.droplets[0].networks.v4[0].ip_address }}"
+
+    - name: Add Droplet IP to Inventory
+      ansible.builtin.lineinfile:
+        dest: "{{ hosts_dest }}"
+        line: "{{ droplet_ip }}"
+        insertbefore: BOF
+      when:
+        - droplet_ip is defined
+        - droplet_ip not in lookup('file', hosts_dest)
+
+    - name: Add [digitalocean] group header
+      ansible.builtin.lineinfile:
+        path: "{{ hosts_dest }}"
+        line: "[digitalocean]"
+        insertbefore: BOF
+      when:
+        - droplet_ip is defined
