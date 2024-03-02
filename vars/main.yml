@@ -21,3 +21,4 @@ certbot_certs:
 # User vars
 username: myuser
 userpassword: p@ssword
+hostname: httpstest
