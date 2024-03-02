@@ -1,0 +1,72 @@
+---
+- name: DNS and SSH configuration
+- hosts: digitalocean
+  connection: local
+  become: true
+
+  vars_files:
+    - vars/main.yml
+
+  tasks:
+    - name: SSH installation
+      ansible.builtin.apt:
+        name:
+          - resolvconf
+          - openssh-server
+        state: present
+      when: ansible_os_family = 'Debian'
+
+    - name: Test if hostname exists
+      shell: grep -c "{{ hostname }}" /etc/hostname || true
+      register: test_hostname
+
+    - name: Add hostname
+      lineinfile:
+        dest: /etc/hostname
+        line: "{{ hostname }}"
+      when: test_hostname.stdout == "0"
+      register: hostname_add
+
+    - name: Test for hosts file
+      shell: grep -c "127.0.0.2 "{{ hostname }}"" /etc/hosts || true
+      register: test_hosts
+
+    - name: Add new hosts
+      lineinfile:
+        dest: /etc/hosts
+        line: 127.0.0.2 "{{ hostname }}"
+      when: test_hosts.stdout == "0"
+      register: hosts_add
+
+    - name: Apply changes
+      ansible.builtin.command:
+        - hostnamectl set-hostname my-server
+      when: hostname_add.stdout == "1" and hosts_add.stdout == "1"
+
+    - name: Add new hosts
+      lineinfile:
+        dest: /etc/resolvconf/resolv.conf.d/head
+        line: domain "{{ hostname }}"
+
+    - name: Set DNS servers in /etc/resolv.conf
+      lineinfile:
+        path: /etc/resolv.conf
+        line: "{{ item }}"
+        insertafter: EOF
+        state: present
+      with_items:
+        - nameserver 8.8.8.8
+        - nameserver 8.8.4.4
+      notify: Restart networking
+
+    - name: Ensure SSH server is installed and running
+      ansible.builtin.service:
+        name: ssh
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Restart networking
+      ansible.builtin.service:
+        name: networking
+        state: restarted
